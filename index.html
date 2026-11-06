@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>FinCity 3D</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: full-bleed 3D night city; glass HUD on top, district list left, info panel right (bottom sheet on phones). Single deliberate dark look. */
+*{box-sizing:border-box} body{margin:0}
+:root{
+  --bg:#1a1420; --surface:rgba(32,22,28,.84); --line:rgba(232,190,150,.22);
+  --fg:#f6ece0; --muted:#c3a993; --gold:#e8b14a; --teal:#3fd0c0;
+  --up:#4ade80; --down:#f87171;
+  --f-display:"Unbounded","Arial Black",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+  color-scheme:dark;
+}
+html,body{height:100%;overflow:hidden}
+body{background:var(--bg);color:var(--fg);font-family:var(--f-body);font-size:14px}
+#scene{position:fixed;inset:0;display:block;width:100%;height:100%;outline:none;touch-action:none}
+.hud{position:fixed;z-index:5;pointer-events:none}
+.hud>*{pointer-events:auto}
+.glass{background:var(--surface);border:1px solid var(--line);border-radius:10px;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+/* top bar */
+#top{top:env(safe-area-inset-top,0px);left:0;right:0;display:flex;gap:10px;align-items:stretch;flex-wrap:wrap;
+  padding-block:12px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.brand{padding:10px 14px;display:flex;flex-direction:column;justify-content:center}
+.brand h1{margin:0;font-family:var(--f-display);font-size:18px;letter-spacing:.02em;font-weight:700}
+.brand h1 b{color:var(--gold);font-weight:700}
+.brand span{font-size:11px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase}
+.kpis{display:flex;gap:0;flex-wrap:wrap;padding:6px 4px;min-width:0}
+.kpi{padding:4px 14px;border-left:1px solid var(--line);min-width:0}
+.kpi:first-child{border-left:0}
+.kpi small{display:block;font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+.kpi strong{font-family:var(--f-mono);font-size:16px;font-weight:500;font-variant-numeric:tabular-nums;white-space:nowrap}
+.chg{font-family:var(--f-mono);font-size:11px;margin-left:4px}
+.up{color:var(--up)} .down{color:var(--down)}
+.tools{display:flex;gap:6px;align-items:center;margin-left:auto;padding:6px}
+button{font:inherit;color:var(--fg);background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:7px;padding:7px 11px;cursor:pointer}
+button:hover{border-color:var(--gold)}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+button[aria-pressed="true"]{background:rgba(232,177,74,.18);border-color:var(--gold);color:var(--gold)}
+/* district list */
+#list{left:max(16px,env(safe-area-inset-left,0px));top:118px;width:230px;max-height:calc(100% - 190px);overflow:auto;padding:10px}
+#list h2,.sec-h{margin:2px 4px 8px;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);font-weight:600}
+#list ul{list-style:none;margin:0;padding:0;display:grid;gap:2px}
+#list li button{width:100%;text-align:left;background:none;border:1px solid transparent;display:flex;gap:8px;align-items:center;padding:6px 8px}
+#list li button:hover,#list li button.on{background:rgba(255,255,255,.06);border-color:var(--line)}
+#list li button.on{border-color:var(--gold)}
+.dot{width:9px;height:9px;border-radius:2px;flex:none}
+/* info panel */
+#panel{right:max(16px,env(safe-area-inset-right,0px));top:118px;width:380px;max-height:calc(100% - 150px);overflow:auto;padding:18px;
+  transform:translateX(calc(100% + 40px));transition:transform .35s ease}
+#panel.open{transform:none}
+#panel .close{position:absolute;top:12px;right:12px;padding:4px 9px}
+.p-kind{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--gold);font-weight:600}
+#panel h3{font-family:var(--f-display);font-size:19px;line-height:1.25;margin:6px 34px 8px 0;text-wrap:balance;font-weight:500}
+.p-desc{color:var(--muted);line-height:1.5;margin:0 0 14px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px}
+.cell{background:rgba(255,255,255,.04);border:1px solid var(--line);border-radius:8px;padding:9px 10px;min-width:0}
+.cell small{display:block;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
+.cell b{font-family:var(--f-mono);font-weight:500;font-size:15px;font-variant-numeric:tabular-nums}
+.chart{margin:0 0 16px}
+.chart svg{width:100%;height:auto;display:block}
+.chart .cap{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:4px}
+.tool{border-top:1px solid var(--line);padding-top:14px}
+.tool h4{margin:0 0 10px;font-size:13px;font-weight:600;color:var(--teal)}
+.field{display:grid;gap:4px;margin-bottom:10px}
+.field label{display:flex;justify-content:space-between;font-size:12px;color:var(--muted)}
+.field label output{font-family:var(--f-mono);color:var(--fg)}
+input[type=range]{width:100%;accent-color:var(--gold)}
+select{font:inherit;background:#2a1d24;color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:6px}
+.result{background:rgba(63,208,192,.08);border:1px solid rgba(63,208,192,.3);border-radius:8px;padding:10px 12px;display:grid;gap:4px;font-size:13px}
+.result div{display:flex;justify-content:space-between;gap:10px}
+.result b{font-family:var(--f-mono);font-weight:500;font-variant-numeric:tabular-nums}
+table{width:100%;border-collapse:collapse;font-size:12px;font-variant-numeric:tabular-nums}
+td,th{padding:5px 4px;border-bottom:1px solid var(--line);text-align:right}
+td:first-child,th:first-child{text-align:left}
+th{color:var(--muted);font-weight:500;font-size:11px}
+td{font-family:var(--f-mono)}
+.bar{height:8px;border-radius:3px;background:var(--teal)}
+.note{font-size:11px;color:var(--muted);margin-top:8px;line-height:1.45}
+/* hint + tooltip */
+#hint{left:50%;transform:translateX(-50%);bottom:calc(14px + env(safe-area-inset-bottom,0px));padding:8px 14px;font-size:12px;color:var(--muted);white-space:nowrap}
+#hint b{color:var(--fg);font-weight:500}
+#tip{position:fixed;z-index:6;pointer-events:none;padding:5px 9px;font-size:12px;border-radius:6px;background:var(--surface);border:1px solid var(--gold);transform:translate(12px,12px);display:none;white-space:nowrap}
+#loading{position:fixed;inset:0;display:grid;place-items:center;font-family:var(--f-display);color:var(--muted);z-index:10;background:var(--bg)}
+@media (max-width:820px){
+  #list{display:none}
+  #list.show{display:block;top:auto;bottom:60px;max-height:45%;width:auto;right:max(16px,env(safe-area-inset-right,0px))}
+  #panel{left:max(16px,env(safe-area-inset-left,0px));right:max(16px,env(safe-area-inset-right,0px));width:auto;top:auto;bottom:calc(10px + env(safe-area-inset-bottom,0px));max-height:58%;transform:translateY(calc(100% + 40px))}
+  .kpi:nth-child(n+4){display:none}
+  #hint{display:none}
+}
+@media (min-width:821px){#btnList{display:none}}
+@media (prefers-reduced-motion:reduce){#panel{transition:none}}
+</style>
+</head>
+<body>
+
+<div id="loading">Прокладываем каналы…</div>
+<canvas id="scene" tabindex="0" aria-label="3D-модель финансового города в стиле Венеции. Перетаскивайте для вращения, колёсико для масштаба, клик по зданию открывает его панель."></canvas>
+
+<header id="top" class="hud">
+  <div class="brand glass"><h1>Fin<b>City</b> 3D</h1><span>Financial Smart City · Venezia</span></div>
+  <div class="kpis glass" aria-live="polite">
+    <div class="kpi"><small>Индекс FIN-30</small><strong id="kIdx">—</strong><span id="kIdxC" class="chg"></span></div>
+    <div class="kpi"><small>Ключевая ставка</small><strong id="kRate">—</strong></div>
+    <div class="kpi"><small>Бюджет города</small><strong id="kBud">—</strong></div>
+    <div class="kpi"><small>Инфляция</small><strong id="kInf">—</strong></div>
+    <div class="kpi"><small>Транзакций / сек</small><strong id="kTx">—</strong></div>
+  </div>
+  <div class="tools glass">
+    <button id="btnList" aria-pressed="false">Объекты</button>
+    <button id="btnRot" aria-pressed="false" title="Автоматический облёт 360°">Облёт 360°</button>
+    <button id="btnReset" title="Вернуть камеру">Сброс</button>
+  </div>
+</header>
+
+<nav id="list" class="hud glass" aria-label="Здания города">
+  <h2>Ключевые объекты</h2>
+  <ul id="listUl"></ul>
+</nav>
+
+<aside id="panel" class="hud glass" aria-live="polite">
+  <button class="close" id="pClose" aria-label="Закрыть панель">✕</button>
+  <div id="pBody"></div>
+</aside>
+
+<div id="hint" class="hud glass"><b>ЛКМ</b> — вращение · <b>колёсико</b> — зум · <b>ПКМ</b> — сдвиг · <b>клик по палаццо</b> — информация</div>
+<div id="tip"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+(() => {
+/* ================= ECONOMY STATE ================= */
+const E = {
+  keyRate: 14.0,      // %
+  inflation: 9.2,     // %
+  idx: 1842.6, idxOpen: 1842.6, idxHist: [],
+  tx: 4210,
+  budget: { revenue: { 'Подоходный налог':412, 'НДС':356, 'Налог на имущество':128, 'Корпоративный налог':298, 'Неналоговые доходы':94 },
+            spend:   { 'Образование':290, 'Здравоохранение':255, 'Транспорт':180, 'ЖКХ':140, 'Безопасность':120, 'Цифровизация':88, 'Обслуживание долга':64, 'Соцподдержка':170 } },
+  stocks: [
+    { t:'FNCB', n:'FinCity Bank', p:84.20 }, { t:'GLDT', n:'Gold Tower Invest', p:212.5 },
+    { t:'PAYX', n:'PayHub Fintech', p:46.10 }, { t:'INSR', n:'SafeLife Insurance', p:63.75 },
+    { t:'MALL', n:'Grand Mall REIT', p:28.40 }, { t:'ENRG', n:'City Energy', p:119.9 }
+  ]
+};
+E.stocks.forEach(s => { s.open = s.p; s.hist = [s.p]; });
+for (let i=0;i<60;i++){ E.idx += (Math.random()-.47)*6; E.idxHist.push(E.idx); }
+E.idxOpen = E.idxHist[0];
+const sum = o => Object.values(o).reduce((a,b)=>a+b,0);
+const fmt = (n,d=0) => n.toLocaleString('ru-RU',{minimumFractionDigits:d,maximumFractionDigits:d});
+const money = (n,d=0) => '$' + fmt(n,d);
+const mln = n => '$' + fmt(n) + ' млн';
+const depositRate = () => Math.max(1, E.keyRate - 2.5);
+const loanRate = () => E.keyRate + 5.5;
+const mortgageRate = () => E.keyRate + 3.0;
+const rnd = (a,b) => a + Math.random()*(b-a);
+
+/* ================= UI HELPERS ================= */
+function spark(data, {w=340,h=90,color='#e8b14a',fill=true}={}) {
+  const min=Math.min(...data), max=Math.max(...data), pad=4, r=(max-min)||1;
+  const X=i=>pad+i*(w-2*pad)/(data.length-1), Y=v=>h-pad-(v-min)/r*(h-2*pad);
+  const d=data.map((v,i)=>(i?'L':'M')+X(i).toFixed(1)+' '+Y(v).toFixed(1)).join(' ');
+  const grid=[.25,.5,.75].map(f=>`<line x1="0" x2="${w}" y1="${h*f}" y2="${h*f}" stroke="rgba(140,190,210,.12)"/>`).join('');
+  const last=data[data.length-1];
+  return `<svg viewBox="0 0 ${w} ${h}" role="img">${grid}${fill?`<path d="${d} L${X(data.length-1)} ${h} L${X(0)} ${h} Z" fill="${color}" fill-opacity=".14"/>`:''}<path d="${d}" fill="none" stroke="${color}" stroke-width="2"/><circle cx="${X(data.length-1)}" cy="${Y(last)}" r="3.5" fill="${color}"/></svg>`;
+}
+function bars(items, {color='#3fd0c0', unit=''}={}) {
+  const max=Math.max(...items.map(i=>i[1]));
+  return '<table><tbody>'+items.map(([k,v,c])=>`<tr><td style="font-family:var(--f-body)">${k}</td><td style="width:45%"><div class="bar" style="width:${(v/max*100).toFixed(1)}%;background:${c||color}"></div></td><td>${fmt(v)}${unit}</td></tr>`).join('')+'</tbody></table>';
+}
+const series = (n, start, vol, drift=0) => { let v=start; return Array.from({length:n},()=> (v=Math.max(1,v*(1+drift+(Math.random()-.5)*vol)))); };
+function field(id,label,min,max,step,val,suffix=''){ return `<div class="field"><label for="${id}">${label}<output id="${id}o">${fmt(+val, step<1?1:0)}${suffix}</output></label><input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${val}"></div>`; }
+function bindRange(root, ids, suffixes, cb){ const run=()=>{ ids.forEach((id,i)=>{ const el=root.querySelector('#'+id); const st=+el.step; root.querySelector('#'+id+'o').textContent=fmt(+el.value, st<1?1:0)+(suffixes[i]||''); }); cb(); }; ids.forEach(id=>root.querySelector('#'+id).addEventListener('input',run)); run(); }
+const val = (root,id) => +root.querySelector('#'+id).value;
+function annuity(P, ratePct, months){ const r=ratePct/100/12; return r? P*r/(1-Math.pow(1+r,-months)) : P/months; }
+
+/* ================= BUILDING CATALOG ================= */
+const B = [
+ { id:'cb', name:'Banca Centrale — центральный банк', kind:'Монетарная политика', color:0xe8b14a, shape:'temple', x:0, z:0, w:16, d:12, h:9,
+   desc:'Регулятор финансовой системы города. Устанавливает ключевую ставку, от которой зависят ставки по вкладам, кредитам и ипотеке во всех банках FinCity.',
+   kpis:()=>[['Ключевая ставка',fmt(E.keyRate,1)+'%'],['Инфляция',fmt(E.inflation,1)+'%'],['Золотовалютные резервы','$4,8 млрд'],['Денежная масса M2','$21,3 млрд']],
+   chart:()=>({cap:['Инфляция, 24 мес.','цель 4%'],data:series(24,11,.05,-.008),color:'#f87171'}),
+   tool:{ title:'Симулятор ключевой ставки', html:()=>field('kr','Ключевая ставка',5,25,.25,E.keyRate,'%')+`<div class="result" id="krR"></div><p class="note">Ставка сразу применяется ко всему городу: смотрите на банк, кредитный центр и жилой квартал.</p>`,
+     init(root){ bindRange(root,['kr'],['%'],()=>{ E.keyRate=val(root,'kr'); E.inflation=Math.max(2,Math.min(20, 9.2-(E.keyRate-14)*.55)); const credit=Math.max(-30,Math.min(30,-(E.keyRate-14)*3.2));
+       root.querySelector('#krR').innerHTML=`<div><span>Прогноз инфляции через год</span><b>${fmt(E.inflation,1)}%</b></div><div><span>Ставка по вкладам</span><b>${fmt(depositRate(),1)}%</b></div><div><span>Ставка по кредитам</span><b>${fmt(loanRate(),1)}%</b></div><div><span>Ставка по ипотеке</span><b>${fmt(mortgageRate(),1)}%</b></div><div><span>Спрос на кредиты</span><b class="${credit>=0?'up':'down'}">${credit>=0?'+':''}${fmt(credit,1)}%</b></div><div><span>Реальная ставка</span><b>${fmt(E.keyRate-E.inflation,1)}%</b></div>`; updateTop(); }); } } },
+
+ { id:'ex', name:'Borsa di San Marco — фондовая биржа FCX', kind:'Рынок капитала', color:0x3fd0c0, shape:'dome', x:-32, z:-32, w:14, d:14, h:10,
+   desc:'Биржа, на которой торгуются акции компаний города. Котировки обновляются в реальном времени, индекс FIN-30 отражает настроение рынка.',
+   kpis:()=>[['FIN-30',fmt(E.idx,1)],['Изм. за день',pct(E.idx,E.idxOpen)],['Капитализация','$38,6 млрд'],['Объём торгов','$412 млн']],
+   chart:()=>({cap:['Индекс FIN-30, внутри дня','live'],data:E.idxHist.slice(-60),color:'#3fd0c0',live:true}),
+   tool:{ title:'Котировки (обновляются каждую секунду)', html:()=>`<table><thead><tr><th>Тикер</th><th>Цена</th><th>Изм.</th></tr></thead><tbody id="tick"></tbody></table><p class="note">Модель случайного блуждания со сдвигом в зависимости от ключевой ставки: чем выше ставка, тем слабее рынок.</p>`,
+     init(root){ const draw=()=>{ const tb=root.querySelector('#tick'); if(!tb) return false; tb.innerHTML=E.stocks.map(s=>`<tr><td title="${s.n}">${s.t}</td><td>${fmt(s.p,2)}</td><td class="${s.p>=s.open?'up':'down'}">${pct(s.p,s.open)}</td></tr>`).join(''); return true; }; draw(); live.push(draw); } } },
+
+ { id:'inv', name:"Campanile d'Oro — инвестиционная компания", kind:'Инвестиции', color:0xf3d27a, shape:'tower', x:0, z:-32, w:7, d:7, h:46,
+   desc:'Самая высокая колокольня города с золотым ангелом на шпиле. Управляет пенсионными и частными портфелями, помогает жителям распределять сбережения между акциями, облигациями и депозитами.',
+   kpis:()=>[['Активы под управлением','$9,4 млрд'],['Клиентов','186 400'],['Доходность за год','+14,8%'],['Комиссия','1,2%']],
+   chart:()=>({cap:['Стоимость активов, 5 лет','млрд $'],data:series(60,4.2,.04,.013),color:'#f3d27a'}),
+   tool:{ title:'Конструктор портфеля', html:()=>field('ia','Стартовая сумма',1000,100000,1000,10000,' $')+field('im','Пополнение в месяц',0,2000,50,300,' $')+field('is','Доля акций',0,100,5,60,'%')+field('iy','Срок',1,30,1,10,' лет')+`<div class="result" id="iR"></div><div class="chart" id="iC" style="margin-top:10px"></div>`,
+     init(root){ bindRange(root,['ia','im','is','iy'],[' $',' $','%',' лет'],()=>{ const a=val(root,'ia'),m=val(root,'im'),s=val(root,'is')/100,y=val(root,'iy');
+       const ret=s*11+(1-s)*(depositRate()*.8), risk=s*18+(1-s)*3; let v=a, path=[a]; for(let i=1;i<=y*12;i++){ v=v*(1+ret/100/12)+m; if(i%12===0) path.push(v); }
+       const put=a+m*12*y; root.querySelector('#iR').innerHTML=`<div><span>Ожидаемая доходность</span><b>${fmt(ret,1)}% год.</b></div><div><span>Риск (волатильность)</span><b>${fmt(risk,1)}%</b></div><div><span>Внесено</span><b>${money(put)}</b></div><div><span>Итоговая стоимость</span><b class="up">${money(v)}</b></div><div><span>Инвестиционный доход</span><b class="up">${money(v-put)}</b></div>`;
+       root.querySelector('#iC').innerHTML=`<div class="cap"><span>Рост портфеля по годам</span><span>${y} лет</span></div>`+spark(path,{color:'#f3d27a'}); }); } } },
+
+ { id:'bank', name:'FinCity Bank', kind:'Коммерческий банк', color:0x5aa9e6, shape:'office', x:32, z:-36, w:13, d:10, h:24,
+   desc:'Крупнейший коммерческий банк: вклады, карты, переводы и расчётные счета для бизнеса. Ставки привязаны к ключевой ставке центробанка.',
+   kpis:()=>[['Ставка по вкладам',fmt(depositRate(),1)+'%'],['Депозиты','$6,2 млрд'],['Кредитный портфель','$5,1 млрд'],['Достаточность капитала','13,4%']],
+   chart:()=>({cap:['Чистая прибыль по кварталам','млн $'],data:[48,52,50,57,61,59,66,71,69,78],color:'#5aa9e6'}),
+   tool:{ title:'Калькулятор вклада', html:()=>field('da','Сумма вклада',500,50000,500,5000,' $')+field('dt','Срок',3,60,3,12,' мес.')+`<div class="field"><label for="dc">Капитализация</label><select id="dc"><option value="12">Ежемесячно</option><option value="4">Ежеквартально</option><option value="1">В конце срока</option></select></div><div class="result" id="dR"></div>`,
+     init(root){ const run=()=>{ const a=val(root,'da'),t=val(root,'dt'),c=+root.querySelector('#dc').value,r=depositRate()/100; const n=c===1?1:c*t/12; const v=c===1? a*(1+r*t/12) : a*Math.pow(1+r/c,n); const tax=Math.max(0,(v-a))*.1;
+       root.querySelector('#dR').innerHTML=`<div><span>Ставка</span><b>${fmt(depositRate(),1)}%</b></div><div><span>Начисленные проценты</span><b class="up">${money(v-a,2)}</b></div><div><span>Налог на доход (10%)</span><b class="down">−${money(tax,2)}</b></div><div><span>Сумма к получению</span><b>${money(v-tax,2)}</b></div>`; };
+       bindRange(root,['da','dt'],[' $',' мес.'],run); root.querySelector('#dc').addEventListener('change',run); } } },
+
+ { id:'ins', name:'SafeLife Insurance', kind:'Страхование', color:0x9b8cff, shape:'office', x:20, z:-24, w:7, d:7, h:16,
+   desc:'Страховая компания: жизнь, имущество, автомобили и бизнес-риски. Аккумулирует страховые резервы и инвестирует их в облигации.',
+   kpis:()=>[['Страховые премии','$742 млн'],['Выплаты','$468 млн'],['Комбинир. убыточность','91%'],['Полисов','312 000']],
+   chart:()=>({cap:['Премии vs выплаты, 8 кв.','млн $'],data:[160,168,171,180,176,188,192,198],color:'#9b8cff'}),
+   tool:{ title:'Расчёт страхового взноса (КАСКО)', html:()=>field('sv','Стоимость авто',5000,80000,1000,25000,' $')+field('sa','Возраст водителя',18,75,1,30,' лет')+field('se','Стаж',0,40,1,6,' лет')+`<div class="result" id="sR"></div>`,
+     init(root){ bindRange(root,['sv','sa','se'],[' $',' лет',' лет'],()=>{ const v=val(root,'sv'),a=val(root,'sa'),e=val(root,'se'); let k=1; if(a<23)k+=.6; if(a>65)k+=.25; k+=Math.max(0,(5-e))*.08; const base=v*.045; const p=base*k;
+       root.querySelector('#sR').innerHTML=`<div><span>Базовый тариф (4,5%)</span><b>${money(base)}</b></div><div><span>Коэффициент риска</span><b>×${fmt(k,2)}</b></div><div><span>Годовой взнос</span><b>${money(p)}</b></div><div><span>В месяц</span><b>${money(p/12)}</b></div>`; }); } } },
+
+ { id:'hall', name:'Palazzo Comunale — мэрия и бюджет', kind:'Городской бюджет', color:0xd9dde2, shape:'temple', x:-32, z:-2, w:14, d:11, h:11,
+   desc:'Здесь формируется и исполняется бюджет FinCity. Измените расходы по статьям, чтобы увидеть дефицит или профицит бюджета.',
+   kpis:()=>{ const r=sum(E.budget.revenue), s=sum(E.budget.spend); return [['Доходы',mln(r)],['Расходы',mln(s)],['Баланс',(r-s>=0?'+':'')+mln(r-s)],['Госдолг','$1,9 млрд']]; },
+   chart:()=>({cap:['Доходы бюджета по годам','млн $'],data:[980,1010,1065,1120,1150,1210,1288],color:'#d9dde2'}),
+   tool:{ title:'Распределение расходов бюджета', html:()=>Object.entries(E.budget.spend).map(([k,v],i)=>field('bs'+i,k,0,500,5,v,' млн')).join('')+`<div class="result" id="bR"></div><div style="margin-top:12px"><div class="sec-h" style="margin-left:0">Структура доходов</div>${bars(Object.entries(E.budget.revenue),{unit:''})}</div>`,
+     init(root){ const keys=Object.keys(E.budget.spend); bindRange(root,keys.map((_,i)=>'bs'+i),keys.map(()=>' млн'),()=>{ keys.forEach((k,i)=>E.budget.spend[k]=val(root,'bs'+i)); const r=sum(E.budget.revenue), s=sum(E.budget.spend), b=r-s;
+       root.querySelector('#bR').innerHTML=`<div><span>Доходы</span><b>${mln(r)}</b></div><div><span>Расходы</span><b>${mln(s)}</b></div><div><span>${b>=0?'Профицит':'Дефицит'}</span><b class="${b>=0?'up':'down'}">${b>=0?'+':''}${mln(b)}</b></div><div><span>Дефицит к доходам</span><b>${fmt(b/r*100,1)}%</b></div>`; updateTop(); }); } } },
+
+ { id:'tax', name:'Налоговая служба', kind:'Налоги', color:0xb7c4cc, shape:'office', x:-22, z:8, w:7, d:7, h:12,
+   desc:'Администрирует налоги физических лиц и бизнеса. Налоговые поступления — главный источник городского бюджета.',
+   kpis:()=>[['Собрано за год',mln(sum(E.budget.revenue)-94)],['Налогоплательщиков','1,2 млн'],['Онлайн-деклараций','87%'],['Собираемость','96,4%']],
+   chart:()=>({cap:['Поступления по месяцам','млн $'],data:series(12,90,.12,.01),color:'#b7c4cc'}),
+   tool:{ title:'Калькулятор налогов сотрудника', html:()=>field('tg','Зарплата до налогов',300,10000,50,1500,' $/мес')+`<div class="result" id="tR"></div><p class="note">Ставки FinCity: подоходный налог 12%, пенсионный взнос 5%, соцналог работодателя 9%.</p>`,
+     init(root){ bindRange(root,['tg'],[' $/мес'],()=>{ const g=val(root,'tg'), it=g*.12, pf=g*.05, sn=g*.09;
+       root.querySelector('#tR').innerHTML=`<div><span>Подоходный налог 12%</span><b class="down">−${money(it,2)}</b></div><div><span>Пенсионный взнос 5%</span><b class="down">−${money(pf,2)}</b></div><div><span>На руки</span><b class="up">${money(g-it-pf,2)}</b></div><div><span>Соцналог (платит работодатель)</span><b>${money(sn,2)}</b></div><div><span>Полная стоимость сотрудника</span><b>${money(g+sn,2)}</b></div><div><span>В бюджет за год</span><b>${money((it+pf+sn)*12)}</b></div>`; }); } } },
+
+ { id:'credit', name:'Кредитный центр', kind:'Кредиты', color:0xff9f5a, shape:'office', x:32, z:0, w:12, d:12, h:18,
+   desc:'Выдаёт потребительские и бизнес-кредиты. Рассчитывает аннуитетный график платежей и проверяет долговую нагрузку заёмщика.',
+   kpis:()=>[['Ставка по кредитам',fmt(loanRate(),1)+'%'],['Выдано за месяц','$128 млн'],['Просрочка 90+','3,1%'],['Одобрение заявок','64%']],
+   chart:()=>({cap:['Выдачи кредитов, 12 мес.','млн $'],data:series(12,110,.1,.01),color:'#ff9f5a'}),
+   tool:{ title:'Кредитный калькулятор', html:()=>field('la','Сумма кредита',1000,100000,1000,20000,' $')+field('lt','Срок',6,84,6,36,' мес.')+field('li','Доход заёмщика',300,10000,100,2000,' $/мес')+`<div class="result" id="lR"></div><div id="lS" style="margin-top:10px"></div>`,
+     init(root){ bindRange(root,['la','lt','li'],[' $',' мес.',' $/мес'],()=>{ const P=val(root,'la'),n=val(root,'lt'),inc=val(root,'li'),r=loanRate(); const m=annuity(P,r,n), pti=m/inc*100;
+       const status = pti<=40 ? ['Одобрено','up'] : pti<=55 ? ['Требует проверки','']:['Отказ: высокая нагрузка','down'];
+       root.querySelector('#lR').innerHTML=`<div><span>Ставка</span><b>${fmt(r,1)}%</b></div><div><span>Ежемесячный платёж</span><b>${money(m,2)}</b></div><div><span>Переплата</span><b class="down">${money(m*n-P)}</b></div><div><span>Долговая нагрузка (PTI)</span><b>${fmt(pti,1)}%</b></div><div><span>Решение</span><b class="${status[1]}">${status[0]}</b></div>`;
+       let bal=P, rows=''; const rr=r/100/12; for(let y=1;y<=Math.ceil(n/12);y++){ let ip=0,pp=0; for(let k=0;k<12 && bal>0.01;k++){ const i=bal*rr; ip+=i; pp+=m-i; bal-=m-i; } rows+=`<tr><td>Год ${y}</td><td>${fmt(pp)}</td><td>${fmt(ip)}</td><td>${fmt(Math.max(0,bal))}</td></tr>`; }
+       root.querySelector('#lS').innerHTML=`<table><thead><tr><th>Период</th><th>Осн. долг</th><th>Проценты</th><th>Остаток</th></tr></thead><tbody>${rows}</tbody></table>`; }); } } },
+
+ { id:'home', name:'Case Nuove — жилой квартал', kind:'Ипотека и недвижимость', color:0x7fc8a9, shape:'res', x:-32, z:32, w:14, d:14, h:20,
+   desc:'Жилой комплекс на 1 400 квартир. 72% покупок оформлено в ипотеку. Рассчитайте, какую квартиру может позволить себе семья.',
+   kpis:()=>[['Ставка по ипотеке',fmt(mortgageRate(),1)+'%'],['Цена за м²','$1 450'],['Квартир продано','1 008 / 1 400'],['Доля ипотеки','72%']],
+   chart:()=>({cap:['Цена м², 36 мес.','$'],data:series(36,1100,.025,.008),color:'#7fc8a9'}),
+   tool:{ title:'Ипотечный калькулятор', html:()=>field('ma','Площадь квартиры',30,150,1,65,' м²')+field('md','Первоначальный взнос',10,70,5,20,'%')+field('mt','Срок',5,30,1,20,' лет')+`<div class="result" id="mR"></div>`,
+     init(root){ bindRange(root,['ma','md','mt'],[' м²','%',' лет'],()=>{ const price=val(root,'ma')*1450, dp=price*val(root,'md')/100, P=price-dp, n=val(root,'mt')*12, m=annuity(P,mortgageRate(),n);
+       root.querySelector('#mR').innerHTML=`<div><span>Стоимость квартиры</span><b>${money(price)}</b></div><div><span>Первый взнос</span><b>${money(dp)}</b></div><div><span>Сумма ипотеки</span><b>${money(P)}</b></div><div><span>Платёж в месяц</span><b>${money(m,2)}</b></div><div><span>Минимальный доход семьи</span><b>${money(m/0.4)}</b></div><div><span>Переплата</span><b class="down">${money(m*n-P)}</b></div>`; }); } } },
+
+ { id:'mall', name:'Mercato di Rialto', kind:'Крытый рынок · P&L', color:0xff6f91, shape:'mall', x:2, z:34, w:20, d:13, h:8,
+   desc:'Крытый рынок у Гранд-канала: 180 лавок, кафе и тратторий. Панель показывает отчёт о прибылях и убытках и позволяет проверить сценарии.',
+   kpis:()=>[['Посетителей/день','46 000'],['Заполняемость','94%'],['Выручка за год','$58,4 млн'],['EBITDA-маржа','41%']],
+   chart:()=>({cap:['Посещаемость, 30 дней','тыс. чел.'],data:series(30,44,.12,.002),color:'#ff6f91'}),
+   tool:{ title:'Отчёт о прибылях и убытках (P&L)', html:()=>field('pr','Аренда за м² в месяц',10,60,1,32,' $')+field('po','Заполняемость',50,100,1,94,'%')+field('pc','Операционные расходы',10,40,1,24,' млн $')+`<div class="result" id="pR"></div>`,
+     init(root){ bindRange(root,['pr','po','pc'],[' $','%',' млн $'],()=>{ const area=120000, rev=val(root,'pr')*area*val(root,'po')/100*12/1e6 + 4.2, opex=val(root,'pc'), ebitda=rev-opex, tax=Math.max(0,ebitda-6)*.2, net=ebitda-6-tax;
+       root.querySelector('#pR').innerHTML=`<div><span>Выручка (аренда + парковка)</span><b>${fmt(rev,1)} млн $</b></div><div><span>Операционные расходы</span><b class="down">−${fmt(opex,1)} млн $</b></div><div><span>EBITDA</span><b>${fmt(ebitda,1)} млн $</b></div><div><span>Амортизация</span><b class="down">−6,0 млн $</b></div><div><span>Налог на прибыль 20%</span><b class="down">−${fmt(tax,1)} млн $</b></div><div><span>Чистая прибыль</span><b class="${net>=0?'up':'down'}">${fmt(net,1)} млн $</b></div><div><span>Маржа</span><b>${fmt(net/rev*100,1)}%</b></div>`; }); } } },
+
+ { id:'fin', name:'PayHub Palazzo — финтех-хаб', kind:'Цифровые платежи', color:0x3fd0c0, shape:'office', altana:true, x:32, z:32, w:12, d:11, h:17,
+   desc:'Обрабатывает карточные, QR- и мобильные платежи города в реальном времени. Антифрод-система на машинном обучении блокирует подозрительные операции.',
+   kpis:()=>[['Транзакций/сек',fmt(E.tx)],['Безналичные платежи','83%'],['Заблокировано фрода','0,04%'],['Среднее время платежа','0,8 с']],
+   chart:()=>({cap:['Нагрузка, транзакций/сек','live'],data:txHist.slice(),color:'#3fd0c0',live:true}),
+   tool:{ title:'Структура платежей за сегодня', html:()=>bars([['QR-код',38,'#3fd0c0'],['Банковская карта',31,'#5aa9e6'],['Мобильный кошелёк',17,'#9b8cff'],['Перевод по номеру',9,'#e8b14a'],['Наличные',5,'#8aa3b0']],{unit:'%'})+`<div class="result" style="margin-top:10px" id="fR"></div>`,
+     init(root){ const draw=()=>{ const el=root.querySelector('#fR'); if(!el) return false; el.innerHTML=`<div><span>Обработано сегодня</span><b>${fmt(txToday)}</b></div><div><span>Оборот сегодня</span><b>${money(txToday*23.4)}</b></div><div><span>Комиссионный доход (0,6%)</span><b class="up">${money(txToday*23.4*.006)}</b></div>`; return true; }; draw(); live.push(draw); } } },
+];
+// ATMs in the central plaza
+[[-11,9],[11,9],[0,-10]].forEach((p,i)=>B.push({ id:'atm'+i, name:'Bancomat №'+(101+i), kind:'Банкомат · 24/7', color:0x3fd0c0, shape:'atm', x:p[0], z:p[1], w:1.2, d:1, h:2.2, small:true,
+  desc:'Банкомат FinCity Bank с бесконтактным снятием наличных и приёмом купюр.',
+  kpis:()=>[['Наличных в кассетах',money(18000+i*7300)],['Операций сегодня',fmt(140+i*37)],['Комиссия','0%'],['Статус','Работает']],
+  chart:()=>({cap:['Снятия по часам','шт.'],data:[2,1,1,0,1,3,8,14,18,15,12,14,19,16,13,12,15,21,24,18,12,8,5,3],color:'#3fd0c0'}) }));
+
+const pct=(a,b)=>{ const v=(a/b-1)*100; return (v>=0?'+':'')+fmt(v,2)+'%'; };
+const live=[]; const txHist=Array.from({length:40},()=>rnd(3800,4600)); let txToday=182340;
+
+/* ================= THREE SCENE (VENEZIA) ================= */
+const canvas=document.getElementById('scene');
+const renderer=new THREE.WebGLRenderer({canvas,antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.shadowMap.enabled=true; renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+const scene=new THREE.Scene();
+// sunset sky over the lagoon
+(()=>{ const c=document.createElement('canvas'); c.width=4; c.height=512; const g=c.getContext('2d'); const gr=g.createLinearGradient(0,0,0,512);
+  gr.addColorStop(0,'#1c2b55'); gr.addColorStop(.42,'#6d5b8e'); gr.addColorStop(.68,'#e08a6a'); gr.addColorStop(.85,'#f4b77c'); gr.addColorStop(1,'#f7d9a6');
+  g.fillStyle=gr; g.fillRect(0,0,4,512); scene.background=new THREE.CanvasTexture(c); })();
+scene.fog=new THREE.Fog(0xe9ae86,130,320);
+const camera=new THREE.PerspectiveCamera(45,1,.5,700);
+const HOME=new THREE.Vector3(95,72,105);
+camera.position.copy(HOME);
+const controls=new THREE.OrbitControls(camera,canvas);
+controls.enableDamping=true; controls.dampingFactor=.08;
+controls.minDistance=16; controls.maxDistance=240; controls.maxPolarAngle=Math.PI*.47;
+controls.target.set(0,4,0); controls.autoRotateSpeed=1.2;
+
+scene.add(new THREE.HemisphereLight(0xffd9b5,0x2e5560,.65));
+const sun=new THREE.DirectionalLight(0xffb072,1.15); sun.position.set(-120,70,40); sun.castShadow=true;
+sun.shadow.mapSize.set(2048,2048); Object.assign(sun.shadow.camera,{left:-90,right:90,top:90,bottom:-90,far:320}); scene.add(sun);
+scene.add(new THREE.AmbientLight(0x6b5a70,.3));
+
+// lagoon water (animated)
+const waterGeo=new THREE.PlaneGeometry(340,340,96,96);
+const water=new THREE.Mesh(waterGeo,new THREE.MeshStandardMaterial({color:0x2c7a80,metalness:.35,roughness:.22,emissive:0x0b2a30,emissiveIntensity:.4}));
+water.rotation.x=-Math.PI/2; water.receiveShadow=true; scene.add(water);
+const wPos=waterGeo.attributes.position;
+function animateWater(t){ for(let i=0;i<wPos.count;i++){ const x=wPos.getX(i), y=wPos.getY(i); wPos.setZ(i, Math.sin(x*.18+t*1.3)*.12+Math.cos(y*.23+t*1.1)*.1); } wPos.needsUpdate=true; waterGeo.computeVertexNormals(); }
+animateWater(0);
+
+const LINES=[-48,-16,16,48];           // canals
+const Q=1.2;                            // quay height: buildings stand on islands
+const stoneMat=new THREE.MeshStandardMaterial({color:0xd9ccb4,roughness:.85});
+const paveMat=new THREE.MeshStandardMaterial({color:0xb9a487,roughness:.95});
+[-32,0,32].forEach(x=>[-32,0,32].forEach(z=>{
+  const isl=new THREE.Mesh(new THREE.BoxGeometry(24,Q+.6,24),stoneMat); isl.position.set(x,(Q-.6)/2,z); isl.receiveShadow=true; isl.castShadow=true; scene.add(isl);
+  const top=new THREE.Mesh(new THREE.PlaneGeometry(23,23),paveMat); top.rotation.x=-Math.PI/2; top.position.set(x,Q+.01,z); top.receiveShadow=true; scene.add(top);
+}));
+// Piazza in the centre
+const plaza=new THREE.Mesh(new THREE.CylinderGeometry(11,11,.12,48),new THREE.MeshStandardMaterial({color:0xe7dcc6,roughness:.7})); plaza.position.set(0,Q+.06,0); scene.add(plaza);
+for(let i=0;i<12;i++){ const s=new THREE.Mesh(new THREE.BoxGeometry(.25,.02,21),new THREE.MeshStandardMaterial({color:0xa98f70})); s.rotation.y=i*Math.PI/12; s.position.set(0,Q+.13,0); scene.add(s); }
+
+// Venetian facade textures: pastel plaster, arched windows, green shutters
+const texCache={};
+function venTex(wall){
+  if(texCache[wall]) return texCache[wall];
+  const W=64,H=128, a=document.createElement('canvas'), e=document.createElement('canvas'); a.width=e.width=W; a.height=e.height=H;
+  const g=a.getContext('2d'), ge=e.getContext('2d'); const col='#'+new THREE.Color(wall).getHexString();
+  g.fillStyle=col; g.fillRect(0,0,W,H); ge.fillStyle='#000'; ge.fillRect(0,0,W,H);
+  for(let i=0;i<350;i++){ g.fillStyle=`rgba(${Math.random()<.5?'255,255,255':'60,30,20'},${Math.random()*.06})`; g.fillRect(Math.random()*W,Math.random()*H,3,3); }
+  for(let y=10;y<H;y+=32) for(let x=6;x<W;x+=20){
+    const lit=Math.random()<.45, arch=(cx,cy,w,h,ctx)=>{ ctx.beginPath(); ctx.moveTo(cx-w/2,cy+h); ctx.lineTo(cx-w/2,cy+w/2); ctx.arc(cx,cy+w/2,w/2,Math.PI,0); ctx.lineTo(cx+w/2,cy+h); ctx.closePath(); ctx.fill(); };
+    g.fillStyle='rgba(245,238,225,.9)'; arch(x+4,y-1,10,18,g);
+    g.fillStyle=lit?'#ffcf87':'#2b231f'; arch(x+4,y,7,16,g);
+    if(lit){ ge.fillStyle='#ffc070'; arch(x+4,y,7,16,ge); }
+    if(Math.random()<.4){ g.fillStyle='#3f6b4a'; g.fillRect(x-2,y+3,2.5,13); g.fillRect(x+8.5,y+3,2.5,13); }
+    g.fillStyle='rgba(240,232,215,.95)'; g.fillRect(x-2,y+16,13,2);
+  }
+  const t1=new THREE.CanvasTexture(a), t2=new THREE.CanvasTexture(e); [t1,t2].forEach(t=>{ t.wrapS=t.wrapT=THREE.RepeatWrapping; });
+  return texCache[wall]={map:t1,em:t2};
+}
+function facadeMat(wall,w,h){
+  const src=venTex(wall); const m=src.map.clone(), e=src.em.clone(); m.needsUpdate=e.needsUpdate=true;
+  const rx=Math.max(1,Math.round(w/5)), ry=Math.max(1,Math.round(h/7)); m.repeat.set(rx,ry); e.repeat.set(rx,ry);
+  return new THREE.MeshStandardMaterial({color:0xffffff,map:m,roughness:.85,emissive:0xffffff,emissiveMap:e,emissiveIntensity:.75});
+}
+const at=(o,x,y,z)=>{ o.position.set(x,y,z); return o; };
+const box=(w,h,d,mat,x=0,y=0,z=0)=>{ const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),mat); m.position.set(x,y,z); m.castShadow=m.receiveShadow=true; return m; };
+const roofMat=new THREE.MeshStandardMaterial({color:0xb4553c,roughness:.8,emissive:0x2a0d05,emissiveIntensity:.2});
+const whiteStone=new THREE.MeshStandardMaterial({color:0xf2ebdd,roughness:.7,emissive:0x221a10,emissiveIntensity:.15});
+function hipRoof(w,d,h,y,mat=roofMat){ const r=new THREE.Mesh(new THREE.ConeGeometry(Math.SQRT1_2,1,4),mat); r.rotation.y=Math.PI/4; r.scale.set(w*1.06,h,d*1.06); r.position.y=y+h/2; r.castShadow=true;
+  const p=new THREE.Group(); p.add(r); return p; }
+function chimney(x,y,z){ const g=new THREE.Group(); const s=new THREE.Mesh(new THREE.CylinderGeometry(.22,.22,1.4,8),roofMat); s.position.y=.7; g.add(s);
+  const f=new THREE.Mesh(new THREE.CylinderGeometry(.55,.2,.8,8),whiteStone); f.position.y=1.7; g.add(f); g.position.set(x,y,z); return g; }
+function palazzo(g,wall,w,h,d,accent,x=0,z=0,opts={}){
+  g.add(box(w,h,d,facadeMat(wall,w,h),x,h/2,z));
+  g.add(box(w+.3,.35,d+.3,whiteStone,x,h*.33,z));             // string course
+  g.add(box(w+.5,.5,d+.5,accent,x,h+.25,z));                  // cornice in the building's colour
+  if(!opts.flat){ g.add(at(hipRoof(w,d,Math.min(w,d)*.32,h+.5),x,0,z));
+    g.add(chimney(x-w*.3,h+.5,z+d*.2)); g.add(chimney(x+w*.28,h+.5,z-d*.25)); }
+  // balcony + water door facing the camera side
+  g.add(box(w*.35,.18,1,whiteStone,x,h*.55,z+d/2+.5));
+  for(let i=0;i<5;i++) g.add(box(.08,.6,.08,whiteStone,x-w*.16+i*w*.08,h*.55+.38,z+d/2+.95));
+}
+
+const WALLS={cb:0xf1e4cc,ex:0xe9d6b2,inv:0xa8452f,bank:0xdb8f6b,ins:0xe3b55e,hall:0xebc3b4,tax:0xcfa27a,credit:0xc9674a,mall:0xe9c48f,fin:0xb95c4b};
+function makeBuilding(b){
+  const g=new THREE.Group();
+  const accent=new THREE.MeshStandardMaterial({color:b.color,emissive:b.color,emissiveIntensity:.3,roughness:.45});
+  const wall=b.wall||WALLS[b.id]||0xe2c49a;
+  if(b.shape==='temple'){ // Palazzo Ducale style: white arcade below, pink patterned upper body, crenellations
+    const hh=b.h; g.add(box(b.w,hh*.38,b.d,whiteStone,0,hh*.19,0));
+    const colG=new THREE.CylinderGeometry(.35,.4,hh*.36,10);
+    for(let i=0;i<9;i++){ const col=new THREE.Mesh(colG,whiteStone); col.position.set(-b.w/2+.8+i*(b.w-1.6)/8,hh*.18,b.d/2+.6); col.castShadow=true; g.add(col); }
+    g.add(box(b.w+.2,.4,1.6,whiteStone,0,hh*.38,b.d/2+.4));
+    g.add(box(b.w,hh*.62,b.d,facadeMat(wall,b.w,hh*.62),0,hh*.38+hh*.31,0));
+    g.add(box(b.w+.4,.4,b.d+.4,accent,0,hh+.2,0));
+    for(let i=0;i<b.w/1.2;i++){ g.add(box(.5,.8,.3,whiteStone,-b.w/2+.4+i*1.2,hh+.8,b.d/2)); g.add(box(.5,.8,.3,whiteStone,-b.w/2+.4+i*1.2,hh+.8,-b.d/2)); }
+  } else if(b.shape==='dome'){ // basilica with five domes
+    g.add(box(b.w,b.h*.6,b.d,facadeMat(wall,b.w,b.h*.6),0,b.h*.3,0));
+    for(let i=0;i<5;i++) g.add(box(2,2.6,.4,new THREE.MeshStandardMaterial({color:0xd9a93a,metalness:.7,roughness:.3,emissive:0x5a3a08,emissiveIntensity:.5}),-b.w/2+1.7+i*(b.w-3.4)/4,b.h*.6-2,b.d/2+.21));
+    const domeMat=new THREE.MeshStandardMaterial({color:0x8f9ea0,metalness:.5,roughness:.4,emissive:b.color,emissiveIntensity:.12});
+    [[0,0,3.6],[-4,-4,2.3],[4,-4,2.3],[-4,4,2.3],[4,4,2.3]].forEach(([x,z,r])=>{ const dm=new THREE.Mesh(new THREE.SphereGeometry(r,24,12,0,Math.PI*2,0,Math.PI/2),domeMat); dm.position.set(x,b.h*.6+.6,z); dm.castShadow=true; g.add(dm);
+      g.add(box(r*1.4,.6,r*1.4,whiteStone,x,b.h*.6+.3,z)); const lan=new THREE.Mesh(new THREE.SphereGeometry(.35,8,6),accent); lan.position.set(x,b.h*.6+.6+r+.3,z); g.add(lan); });
+  } else if(b.shape==='tower'){ // campanile
+    const sw=6.2, sh=b.h*.68; g.add(box(sw+1,2,sw+1,whiteStone,0,1,0));
+    g.add(box(sw,sh,sw,new THREE.MeshStandardMaterial({color:wall,roughness:.9}),0,2+sh/2,0));
+    for(let i=0;i<4;i++){ const lz=box(.5,sh,.5,new THREE.MeshStandardMaterial({color:0x8e3826,roughness:.9}),(i%2?1:-1)*sw*.18,2+sh/2,sw/2+.05); g.add(lz); g.add(box(.5,sh,.5,lz.material,sw/2+.05,2+sh/2,(i%2?1:-1)*sw*.18)); }
+    const by=2+sh; g.add(box(sw+.4,.5,sw+.4,whiteStone,0,by+.25,0));
+    g.add(box(sw,4,sw,whiteStone,0,by+2.5,0));
+    const dark=new THREE.MeshBasicMaterial({color:0x2a1d16}); for(let i=-1;i<=1;i++){ g.add(box(1.1,2.8,.1,dark,i*1.8,by+2.4,sw/2+.01)); g.add(box(.1,2.8,1.1,dark,sw/2+.01,by+2.4,i*1.8)); }
+    g.add(box(sw+.6,.6,sw+.6,accent,0,by+4.8,0));
+    g.add(box(sw-.6,3,sw-.6,new THREE.MeshStandardMaterial({color:wall,roughness:.9}),0,by+6.6,0));
+    const sp=new THREE.Mesh(new THREE.ConeGeometry((sw-.4)*Math.SQRT1_2,9,4),new THREE.MeshStandardMaterial({color:0x5f8f72,metalness:.3,roughness:.5})); sp.rotation.y=Math.PI/4; sp.position.y=by+12.6; sp.castShadow=true; g.add(sp);
+    const angel=new THREE.Group(); const gold=new THREE.MeshStandardMaterial({color:0xf2c14e,metalness:.9,roughness:.2,emissive:0x8a5a00,emissiveIntensity:.6});
+    angel.add(at(new THREE.Mesh(new THREE.ConeGeometry(.35,1.2,8),gold),0,.6,0));
+    angel.add(at(new THREE.Mesh(new THREE.BoxGeometry(1.6,.1,.4),gold),0,.9,0));
+    angel.position.y=by+17.1; g.add(angel); b.anim=angel;
+  } else if(b.shape==='mall'){ // covered market with arcade
+    g.add(box(b.w,b.h,b.d,facadeMat(wall,b.w,b.h),0,b.h/2,0));
+    const colG=new THREE.CylinderGeometry(.3,.3,b.h*.45,8);
+    for(let i=0;i<11;i++){ const c=new THREE.Mesh(colG,whiteStone); c.position.set(-b.w/2+.6+i*(b.w-1.2)/10,b.h*.225,b.d/2+.9); c.castShadow=true; g.add(c); }
+    g.add(box(b.w+.2,.35,2,whiteStone,0,b.h*.45+.15,b.d/2+.8));
+    g.add(box(b.w+.4,.4,b.d+.4,accent,0,b.h+.2,0));
+    const roof=hipRoof(b.w,b.d,3,b.h+.4); g.add(roof);
+    for(let i=0;i<5;i++){ const aw=box(2.6,.12,1.6,new THREE.MeshStandardMaterial({color:i%2?0xc8382c:0xf2ebdd}),-b.w/2+2.5+i*3.8,b.h*.48+.9,-b.d/2-.8); aw.rotation.x=-.35; g.add(aw); }
+  } else if(b.shape==='res'){
+    [[-3.5,-3.5,1,0xe6b07a],[3.5,-3.5,.8,0xd98377],[-3.5,3.5,.65,0xf0d39a],[3.5,3.5,.9,0xc96a4f]].forEach(([x,z,f,c])=>{ const hh=b.h*f; palazzo(g,c,6,hh,6,accent,x,z); });
+  } else if(b.shape==='atm'){
+    g.add(box(b.w,b.h,b.d,new THREE.MeshStandardMaterial({color:0x5c3a2e,roughness:.5}),0,b.h/2,0));
+    const scr=new THREE.Mesh(new THREE.PlaneGeometry(.8,.6),new THREE.MeshBasicMaterial({color:0x3fd0c0})); scr.position.set(0,b.h*.7,b.d/2+.01); g.add(scr);
+    g.add(box(b.w+.3,.15,b.d+.3,accent,0,b.h+.08,0));
+  } else { // office → Venetian palazzo
+    palazzo(g,wall,b.w,b.h,b.d,accent);
+    if(b.altana){ g.add(box(b.w*.5,.15,b.d*.4,new THREE.MeshStandardMaterial({color:0x7a5236}),0,b.h+b.w*.32+.9,0)); }
+  }
+  g.position.set(b.x,Q,b.z);
+  g.traverse(o=>{ if(o.isMesh){ o.userData.bid=b.id; } });
+  return g;
+}
+
+// filler palazzi (also clickable)
+const fillerSpots=[[-40,-24],[-24,-40],[-40,-40],[-24,-24],[8,-24],[-8,-24],[40,-24],[24,-40],[-40,8],[-40,-10],[-24,-10],[40,10],[40,-10],[24,10],[-24,24],[-40,24],[-24,40],[-12,24],[12,24],[24,24],[40,24],[24,40],[-8,-40],[8,-40]];
+const companies=['Atlas Consulting','Nova Audit','Kapital Partners','BrightLedger','Orion Leasing','Vega Trading','Meridian Law','Delta Logistics','Apex Startups','Union Credit Club','Silk Road Exchange','Quanta Analytics','Horizon Realty','Pioneer Venture','Cedar Accounting','Lumen Tech','Prime Brokerage','Unity Microfinance','Northwind Holding','Sigma Capital','Echo Media','Polaris Payroll','Matrix Labs','Crest Asset Mgmt'];
+const occupied=(x,z,r)=>B.some(b=>Math.abs(b.x-x)<(b.w/2+r) && Math.abs(b.z-z)<(b.d/2+r));
+const PASTELS=[0xd9826b,0xe6b66e,0xeacfa0,0xc96a4f,0xdba08c,0xf0dcb8,0xb8573f,0xe3a659];
+fillerSpots.forEach((p,i)=>{
+  const w=rnd(5,7.5), d=rnd(5,7.5), h=rnd(7,16); if(occupied(p[0],p[1],3.2)) return;
+  const name=companies[i%companies.length]; const rev=+rnd(4,60).toFixed(1), exp=+(rev*rnd(.62,.95)).toFixed(1), emp=Math.round(rev*rnd(9,16));
+  B.push({ id:'f'+i, name:'Palazzo '+name, kind:'Палаццо · частный бизнес', color:0xd8c3a0, wall:PASTELS[i%PASTELS.length], shape:'office', x:p[0], z:p[1], w, d, h, filler:true, altana:i%3===0,
+    desc:`Компания «${name}» арендует ${Math.round(h/3.5)} этажей в старинном палаццо. Ниже её финансовая отчётность за год.`,
+    kpis:()=>[['Выручка',fmt(rev,1)+' млн $'],['Расходы',fmt(exp,1)+' млн $'],['Прибыль',fmt(rev-exp,1)+' млн $'],['Сотрудников',fmt(emp)]],
+    chart:()=>({cap:['Выручка по кварталам','млн $'],data:series(8,rev/4,.12,.02),color:'#8aa3b0'}),
+    tool:{ title:'Финансовые показатели', html:()=>{ const tax=(rev-exp)*.2, net=rev-exp-tax; return `<div class="result"><div><span>Рентабельность продаж</span><b>${fmt(net/rev*100,1)}%</b></div><div><span>Налог на прибыль 20%</span><b class="down">−${fmt(tax,2)} млн $</b></div><div><span>Чистая прибыль</span><b class="up">${fmt(net,2)} млн $</b></div><div><span>Выручка на сотрудника</span><b>${money(rev*1e6/emp)}</b></div><div><span>Аренда офиса в год</span><b>${money(h*w*d*240)}</b></div></div>`; }, init(){} } });
+});
+
+// labels
+function labelSprite(text, sub, color){
+  const c=document.createElement('canvas'); const g=c.getContext('2d'); const f1='600 44px "IBM Plex Sans", sans-serif', f2='italic 400 32px "IBM Plex Sans", sans-serif';
+  g.font=f1; const w1=g.measureText(text).width; g.font=f2; const w2=g.measureText(sub).width;
+  const w=Math.ceil(Math.max(w1,w2))+44, H=112; c.width=w; c.height=H;
+  g.fillStyle='rgba(30,20,22,.82)'; g.strokeStyle=color; g.lineWidth=3; const r=16;
+  g.beginPath(); g.moveTo(r,2); g.arcTo(w-2,2,w-2,H-2,r); g.arcTo(w-2,H-2,2,H-2,r); g.arcTo(2,H-2,2,2,r); g.arcTo(2,2,w-2,2,r); g.fill(); g.stroke();
+  g.textBaseline='middle'; g.textAlign='center'; g.font=f1; g.fillStyle='#f6ece0'; g.fillText(text,w/2,38);
+  g.font=f2; g.fillStyle=color; g.fillText(sub,w/2,80);
+  const t=new THREE.CanvasTexture(c); t.minFilter=THREE.LinearFilter;
+  const s=new THREE.Sprite(new THREE.SpriteMaterial({map:t,depthTest:false,transparent:true})); s.scale.set(w/H*3.6,3.6,1); s.renderOrder=10; return s;
+}
+const shortNames={cb:'Banca Centrale',ex:'Borsa di San Marco',inv:"Campanile d'Oro",bank:'Banca FinCity',ins:'Assicurazioni',hall:'Palazzo Comunale',tax:'Ufficio Tributi',credit:'Centro Crediti',home:'Case Nuove · Mutui',mall:'Mercato di Rialto',fin:'PayHub Palazzo'};
+const engNames={cb:'Central Bank',ex:'St. Mark\'s Stock Exchange',inv:'Golden Bell Tower',bank:'FinCity Bank',ins:'Insurance',hall:'City Hall',tax:'Tax Office',credit:'Credit Center',home:'New Houses · Mortgages',mall:'Rialto Market',fin:'PayHub Palace'};
+const groups={}, pickables=[];
+B.forEach(b=>{
+  const g=makeBuilding(b); scene.add(g); groups[b.id]=g;
+  g.traverse(o=>{ if(o.isMesh) pickables.push(o); });
+  if(shortNames[b.id]){ const box3=new THREE.Box3().setFromObject(g); const s=labelSprite(shortNames[b.id],engNames[b.id],'#'+new THREE.Color(b.color).getHexString()); s.position.set(b.x,box3.max.y+3.2,b.z); scene.add(s); b.label=s; }
+});
+const sel=new THREE.Mesh(new THREE.RingGeometry(1,1.25,64),new THREE.MeshBasicMaterial({color:0xe8b14a,transparent:true,opacity:.9,side:THREE.DoubleSide}));
+sel.rotation.x=-Math.PI/2; sel.position.y=Q+.2; sel.visible=false; scene.add(sel);
+
+// arched bridges over the inner canals
+const bridgeMat=new THREE.MeshStandardMaterial({color:0xe9dfcc,roughness:.75});
+function bridge(x,z,alongX){ const g=new THREE.Group(); const N=11, span=10;
+  for(let i=0;i<N;i++){ const u=i/(N-1)-.5, y=Q+1.6*Math.cos(u*Math.PI)-.1, ang=Math.atan(-1.6*Math.PI*Math.sin(u*Math.PI)/span);
+    const s=box(span/N+.12,.35,3,bridgeMat,u*span,y,0); s.rotation.z=ang; g.add(s);
+    [-1.45,1.45].forEach(zz=>{ const r=box(span/N+.12,.5,.15,whiteStone,u*span,y+.4,zz); r.rotation.z=ang; g.add(r); }); }
+  g.position.set(x,0,z); if(!alongX) g.rotation.y=Math.PI/2; scene.add(g); }
+[-16,16].forEach(c=>[-32,0,32].forEach(t=>{ bridge(c,t,true); bridge(t,c,false); }));
+
+// cypress trees, lamps and striped mooring poles
+const cypMat=new THREE.MeshStandardMaterial({color:0x2c4a33,roughness:.9});
+for(let i=0;i<60;i++){ const x=rnd(-43,43), z=rnd(-43,43); if(LINES.some(l=>Math.abs(x-l)<5||Math.abs(z-l)<5) || occupied(x,z,1.4) || Math.hypot(x,z)<12) continue;
+  const c=new THREE.Mesh(new THREE.ConeGeometry(.55,rnd(3,4.5),8),cypMat); c.position.set(x,Q+1.8,z); c.castShadow=true; scene.add(c); }
+const lampMat=new THREE.MeshBasicMaterial({color:0xffd99a}), ironMat=new THREE.MeshStandardMaterial({color:0x221c1a});
+LINES.forEach(c=>{ for(let t=-44;t<=44;t+=11){ if(Math.abs(Math.abs(t)-16)<4) continue; [[c+(c>0?-4.5:4.5),t],[t,c+(c>0?-4.5:4.5)]].forEach(([x,z])=>{ const p=new THREE.Mesh(new THREE.CylinderGeometry(.07,.09,2.6,5),ironMat); p.position.set(x,Q+1.3,z); scene.add(p); const l=new THREE.Mesh(new THREE.SphereGeometry(.24,8,6),lampMat); l.position.set(x,Q+2.7,z); scene.add(l); }); } });
+function stripeTex(c1){ const c=document.createElement('canvas'); c.width=8; c.height=64; const g=c.getContext('2d'); for(let i=0;i<8;i++){ g.fillStyle=i%2?'#f4efe6':c1; g.fillRect(0,i*8,8,8); } const t=new THREE.CanvasTexture(c); return t; }
+const poleMats=[stripeTex('#c8382c'),stripeTex('#2d4f8f'),stripeTex('#2f6b45')].map(t=>new THREE.MeshStandardMaterial({map:t,roughness:.6}));
+LINES.forEach((c,ci)=>{ for(let t=-40;t<=40;t+=8){ if(Math.random()<.45) continue; const side=Math.random()<.5?-3.3:3.3, m=poleMats[(ci+t)&1?0:(ci%3)];
+  [[c+side,t],[t,c+side]].forEach(([x,z])=>{ if(LINES.some(l=>Math.abs((x===c+side?z:x)-l)<5)) return; const p=new THREE.Mesh(new THREE.CylinderGeometry(.12,.12,3.2,8),m); p.position.set(x,1.1,z); p.castShadow=true; scene.add(p);
+    const cap=new THREE.Mesh(new THREE.SphereGeometry(.16,8,6),m); cap.position.set(x,2.75,z); scene.add(cap); }); } });
+
+// gondolas and vaporetti on the canals
+const boats=[];
+const blackLac=new THREE.MeshStandardMaterial({color:0x111214,metalness:.4,roughness:.25});
+const silver=new THREE.MeshStandardMaterial({color:0xd9dde2,metalness:.9,roughness:.25});
+const velvet=new THREE.MeshStandardMaterial({color:0x8e1f2c,roughness:.8});
+const shirt=new THREE.MeshStandardMaterial({map:(()=>{ const c=document.createElement('canvas'); c.width=8; c.height=32; const g=c.getContext('2d'); for(let i=0;i<8;i++){ g.fillStyle=i%2?'#f4efe6':'#1f2a52'; g.fillRect(0,i*4,8,4);} return new THREE.CanvasTexture(c); })()});
+const skin=new THREE.MeshStandardMaterial({color:0xe0b08a}), straw=new THREE.MeshStandardMaterial({color:0xe9cf8e}), ribbon=new THREE.MeshStandardMaterial({color:0xc8382c});
+function gondola(){ const g=new THREE.Group();
+  const hull=new THREE.Mesh(new THREE.SphereGeometry(1,20,10),blackLac); hull.scale.set(.6,.32,3.1); hull.position.y=.1; hull.castShadow=true; g.add(hull);
+  const bow=box(.12,.9,.35,silver,0,.55,2.95); g.add(bow); const stern=box(.12,.5,.25,blackLac,0,.35,-3); stern.rotation.x=-.4; g.add(stern);
+  g.add(box(.7,.25,.8,velvet,0,.38,.6));
+  const man=new THREE.Group(); man.add(at(new THREE.Mesh(new THREE.CylinderGeometry(.2,.22,.8,10),shirt),0,.95,0));
+  man.add(box(.32,.6,.2,blackLac,0,.3,0)); man.add(at(new THREE.Mesh(new THREE.SphereGeometry(.17,10,8),skin),0,1.5,0));
+  man.add(at(new THREE.Mesh(new THREE.CylinderGeometry(.28,.28,.05,14),straw),0,1.64,0));
+  man.add(at(new THREE.Mesh(new THREE.CylinderGeometry(.17,.17,.12,14),ribbon),0,1.7,0));
+  const oar=box(.06,.06,3.2,new THREE.MeshStandardMaterial({color:0x8a5a34}),.35,.9,.5); oar.rotation.x=.45; man.add(oar); man.userData.oar=oar;
+  man.position.set(0,.15,-2.1); g.add(man); g.userData.man=man; return g; }
+function vaporetto(){ const g=new THREE.Group();
+  g.add(box(1.9,.6,6.2,new THREE.MeshStandardMaterial({color:0xf2f0ea,roughness:.5}),0,.25,0));
+  g.add(box(1.95,.18,6.25,new THREE.MeshStandardMaterial({color:0xd9a93a}),0,.62,0));
+  g.add(box(1.6,1.1,3.6,new THREE.MeshStandardMaterial({color:0x2b3640,emissive:0xffc070,emissiveIntensity:.25}),0,1.2,-.3));
+  g.add(box(1.7,.12,3.8,new THREE.MeshStandardMaterial({color:0xf2f0ea}),0,1.8,-.3)); return g; }
+for(let i=0;i<34;i++){ const axis=i%2?'x':'z', lane=LINES[(i>>1)%4], dir=Math.random()<.5?1:-1, vap=i%6===0;
+  const m=vap?vaporetto():gondola(); const off=dir*1.8;
+  if(axis==='z'){ m.position.set(lane+off,0,rnd(-60,60)); m.rotation.y=dir>0?0:Math.PI; } else { m.position.set(rnd(-60,60),0,lane-off); m.rotation.y=dir>0?Math.PI/2:-Math.PI/2; }
+  scene.add(m); boats.push({m,axis,dir,v:vap?rnd(5,7):rnd(2.2,3.6),ph:Math.random()*6.28,vap}); }
+
+// coins rising from the money buildings
+const coinGeo=new THREE.CylinderGeometry(.35,.35,.08,12), coinMat=new THREE.MeshStandardMaterial({color:0xe8b14a,metalness:.8,roughness:.3,emissive:0x6b4a10});
+const coins=[]; ['ex','bank','cb','fin'].forEach(id=>{ const b=B.find(x=>x.id===id); for(let i=0;i<6;i++){ const c=new THREE.Mesh(coinGeo,coinMat); c.position.set(b.x+rnd(-3,3),Q+rnd(0,b.h+8),b.z+rnd(-3,3)); c.rotation.x=Math.PI/2; scene.add(c); coins.push({c,b,s:rnd(1.5,3)}); } });
+
+/* ================= INTERACTION ================= */
+const ray=new THREE.Raycaster(), mouse=new THREE.Vector2(); const tip=document.getElementById('tip');
+let hoverId=null, selected=null, down=null;
+function pick(ev){ const r=canvas.getBoundingClientRect(); mouse.x=(ev.clientX-r.left)/r.width*2-1; mouse.y=-(ev.clientY-r.top)/r.height*2+1; ray.setFromCamera(mouse,camera); const h=ray.intersectObjects(pickables,false)[0]; return h? h.object.userData.bid : null; }
+function setEmissive(id,on){ const g=groups[id]; if(!g) return; g.traverse(o=>{ if(o.isMesh && o.material && 'emissiveIntensity' in o.material){ if(o.userData.e0===undefined) o.userData.e0=o.material.emissiveIntensity; o.material.emissiveIntensity=on? o.userData.e0+.6 : o.userData.e0; } }); }
+canvas.addEventListener('pointermove',ev=>{ if(ev.pointerType!=='mouse') return; const id=pick(ev);
+  if(id!==hoverId){ if(hoverId && hoverId!==selected) setEmissive(hoverId,false); hoverId=id; if(id && id!==selected) setEmissive(id,true); canvas.style.cursor=id?'pointer':'grab'; }
+  if(id){ tip.style.display='block'; tip.textContent=B.find(b=>b.id===id).name; tip.style.left=ev.clientX+'px'; tip.style.top=ev.clientY+'px'; } else tip.style.display='none'; });
+canvas.addEventListener('pointerdown',ev=>{ down=[ev.clientX,ev.clientY]; });
+canvas.addEventListener('pointerup',ev=>{ if(!down || Math.hypot(ev.clientX-down[0],ev.clientY-down[1])>5) return; const id=pick(ev); if(id) select(id,true); });
+
+let fly=null;
+function select(id, focus){
+  if(selected && selected!==id) setEmissive(selected,false);
+  selected=id; setEmissive(id,true); const b=B.find(x=>x.id===id);
+  sel.visible=true; sel.position.set(b.x,Q+.2,b.z); const s=Math.max(b.w,b.d)*.75+1; sel.scale.set(s,s,1);
+  document.querySelectorAll('#listUl button').forEach(x=>x.classList.toggle('on',x.dataset.id===id));
+  renderPanel(b);
+  if(focus){ const tgt=new THREE.Vector3(b.x,Math.min(b.h*.5,14),b.z); const dir=camera.position.clone().sub(controls.target).normalize(); const dist=b.small?22:Math.max(38,b.h*1.6+20);
+    fly={from:camera.position.clone(),to:tgt.clone().add(dir.multiplyScalar(dist)).setY(Math.max(14,b.h*.8+12)),tf:controls.target.clone(),tt:tgt,t:0}; }
+}
+const panel=document.getElementById('panel'), pBody=document.getElementById('pBody');
+let chartEl=null, currentB=null;
+function renderPanel(b){
+  currentB=b; live.length=0;
+  const ch=b.chart();
+  pBody.innerHTML=`<div class="p-kind">${b.kind}</div><h3>${b.name}</h3>${engNames[b.id]?`<div style="color:var(--gold);font-style:italic;margin:-4px 0 10px">EN: ${engNames[b.id]}</div>`:''}<p class="p-desc">${b.desc}</p>
+    <div class="grid" id="pK">${kpiHtml(b)}</div>
+    <div class="chart"><div class="cap"><span>${ch.cap[0]}</span><span>${ch.cap[1]}</span></div><div id="pC">${spark(ch.data,{color:ch.color})}</div></div>
+    ${b.tool?`<div class="tool"><h4>${b.tool.title}</h4><div id="pT">${b.tool.html()}</div></div>`:''}`;
+  if(b.tool) b.tool.init(pBody.querySelector('#pT'));
+  if(ch.live) live.push(()=>{ const el=pBody.querySelector('#pC'); if(!el||currentB!==b) return false; const d=b.chart(); el.innerHTML=spark(d.data,{color:d.color}); return true; });
+  live.push(()=>{ const el=pBody.querySelector('#pK'); if(!el||currentB!==b) return false; el.innerHTML=kpiHtml(b); return true; });
+  panel.open; panel.classList.add('open'); panel.scrollTop=0;
+}
+const kpiHtml=b=>b.kpis().map(([k,v])=>`<div class="cell"><small>${k}</small><b class="${/^\+/.test(v)?'up':/^−|^-\d/.test(v)?'down':''}">${v}</b></div>`).join('');
+document.getElementById('pClose').onclick=()=>{ panel.classList.remove('open'); if(selected) setEmissive(selected,false); selected=null; sel.visible=false; currentB=null; live.length=0; document.querySelectorAll('#listUl button').forEach(x=>x.classList.remove('on')); };
+
+// list
+const ul=document.getElementById('listUl');
+B.filter(b=>!b.filler && !b.small).forEach(b=>{ const li=document.createElement('li'); li.innerHTML=`<button data-id="${b.id}"><span class="dot" style="background:#${new THREE.Color(b.color).getHexString()}"></span><span>${shortNames[b.id]} <i style="color:var(--gold);font-size:12px">(${engNames[b.id]})</i><br><small style="color:var(--muted)">${b.kind}</small></span></button>`; ul.appendChild(li); });
+ul.addEventListener('click',e=>{ const bt=e.target.closest('button'); if(!bt) return; select(bt.dataset.id,true); if(innerWidth<=820) toggleList(false); });
+const listEl=document.getElementById('list'), btnList=document.getElementById('btnList');
+function toggleList(v){ listEl.classList.toggle('show',v); btnList.setAttribute('aria-pressed',v); }
+btnList.onclick=()=>toggleList(!listEl.classList.contains('show'));
+const btnRot=document.getElementById('btnRot');
+btnRot.onclick=()=>{ controls.autoRotate=!controls.autoRotate; btnRot.setAttribute('aria-pressed',controls.autoRotate); };
+document.getElementById('btnReset').onclick=()=>{ fly={from:camera.position.clone(),to:HOME.clone(),tf:controls.target.clone(),tt:new THREE.Vector3(0,4,0),t:0}; };
+
+/* ================= TOP KPIs + LIVE MARKET ================= */
+function updateTop(){
+  document.getElementById('kIdx').textContent=fmt(E.idx,1);
+  const c=document.getElementById('kIdxC'); c.textContent=pct(E.idx,E.idxOpen); c.className='chg '+(E.idx>=E.idxOpen?'up':'down');
+  document.getElementById('kRate').textContent=fmt(E.keyRate,2)+'%';
+  const bal=sum(E.budget.revenue)-sum(E.budget.spend); const kb=document.getElementById('kBud'); kb.textContent=(bal>=0?'+':'')+mln(bal); kb.className=bal>=0?'up':'down';
+  document.getElementById('kInf').textContent=fmt(E.inflation,1)+'%';
+  document.getElementById('kTx').textContent=fmt(E.tx);
+}
+setInterval(()=>{
+  const drift=(14-E.keyRate)*.0004;
+  E.stocks.forEach(s=>{ s.p=Math.max(1,s.p*(1+drift+(Math.random()-.5)*.012)); s.hist.push(s.p); });
+  E.idx=E.idx*(1+drift+(Math.random()-.495)*.004); E.idxHist.push(E.idx); if(E.idxHist.length>120) E.idxHist.shift();
+  E.tx=Math.round(rnd(3600,4900)); txHist.push(E.tx); if(txHist.length>40) txHist.shift(); txToday+=E.tx;
+  updateTop(); for(let i=live.length-1;i>=0;i--) if(live[i]()===false) live.splice(i,1);
+},1000);
+updateTop();
+
+/* ================= LOOP ================= */
+function resize(){ const w=innerWidth,h=innerHeight; renderer.setSize(w,h,false); camera.aspect=w/h; camera.updateProjectionMatrix(); }
+addEventListener('resize',resize); resize();
+const clock=new THREE.Clock(); const ease=t=>t<.5?2*t*t:1-Math.pow(-2*t+2,2)/2;
+const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+function tick(){
+  const dt=Math.min(clock.getDelta(),.05), t=clock.elapsedTime;
+  if(fly){ fly.t=Math.min(1,fly.t+dt/1.2); const k=ease(fly.t); camera.position.lerpVectors(fly.from,fly.to,k); controls.target.lerpVectors(fly.tf,fly.tt,k); if(fly.t>=1) fly=null; }
+  if(!reduce){
+    animateWater(t);
+    boats.forEach(o=>{ const p=o.m.position; if(o.axis==='z'){ p.z+=o.dir*o.v*dt; if(p.z>62) p.z=-62; if(p.z<-62) p.z=62; } else { p.x+=o.dir*o.v*dt; if(p.x>62) p.x=-62; if(p.x<-62) p.x=62; }
+      p.y=Math.sin(t*1.6+o.ph)*.08; o.m.rotation.z=Math.sin(t*1.2+o.ph)*.04; const man=o.m.userData.man; if(man){ man.userData.oar.rotation.x=.45+Math.sin(t*1.8+o.ph)*.25; man.rotation.z=Math.sin(t*1.8+o.ph)*.08; } });
+    coins.forEach(o=>{ o.c.position.y+=o.s*dt; o.c.rotation.z+=dt*3; if(o.c.position.y>Q+o.b.h+14) o.c.position.y=Q+o.b.h*.3; });
+    B.forEach(b=>{ if(b.anim) b.anim.rotation.y=t*.8; });
+    sel.material.opacity=.55+.35*Math.sin(t*4);
+  }
+  controls.update(); renderer.render(scene,camera); requestAnimationFrame(tick);
+}
+document.getElementById('loading').remove();
+tick();
+setTimeout(()=>select('cb',false),600);
+})();
+</script>
+</body>
+</html>
